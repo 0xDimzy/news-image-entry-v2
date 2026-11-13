@@ -15,6 +15,7 @@ Writes the image to /output/entry.png (or $MAKEFUN_OUTPUT_DIR/entry.png):
 exactly the bundled entry.png bytes, deterministically, on every run.
 """
 
+import hashlib
 import os
 import shutil
 from pathlib import Path
@@ -22,7 +23,22 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 SOURCE = HERE / "entry.png"
 
+# Pinned digest of the bundled entry.png (verified at build time). If the
+# bundled file is ever corrupted or swapped, the run fails loudly instead
+# of silently shipping a different image to the judge.
+EXPECTED_SHA256 = (
+    "fbc8b59e56812a87b5d138d686b9d69b0902cb3ebd92e613f7568042536db740"
+)
+
 OUTPUT_DIR = Path(os.environ.get("MAKEFUN_OUTPUT_DIR", "/output"))
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def main() -> None:
@@ -31,6 +47,10 @@ def main() -> None:
     shutil.copyfile(SOURCE, target)
     # Read back: the file the judge sees must be exactly the bundled bytes.
     assert target.read_bytes() == SOURCE.read_bytes()
+    # And those bytes must be the exact image this entry was built from:
+    # a corrupted or swapped bundled file must fail the run, not the grade.
+    digest = _sha256(target)
+    assert digest == EXPECTED_SHA256, f"entry.png sha256 mismatch: {digest}"
 
 
 if __name__ == "__main__":
